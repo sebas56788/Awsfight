@@ -1,0 +1,488 @@
+-- Fast Fight Sebas + Auto Wheel
+loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
+local Library = loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+
+local Window = Library:Window{
+    Title = "Fast Fight Sebas",
+    SubTitle = "Sebas",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Resize = false, 
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftShift
+}
+
+local Tabs = {
+    AutoFight = Window:AddTab({ Title = "Auto Fight", Icon = "crown" }),
+    Wheel = Window:AddTab({ Title = "Auto Wheel", Icon = "ferris-wheel" })
+}
+
+-- FUNCION PARA DETECTAR TODOS LOS BOSSES
+local function GetAllBosses()
+    local allBosses = {}
+    
+    local gameObjects = workspace:FindFirstChild("GameObjects")
+    if gameObjects then
+        local armWrestling = gameObjects:FindFirstChild("ArmWrestling")
+        if armWrestling then
+            for _, zoneFolder in pairs(armWrestling:GetChildren()) do
+                if zoneFolder:IsA("Folder") then
+                    local npcFolder = zoneFolder:FindFirstChild("NPC")
+                    if npcFolder then
+                        for _, boss in pairs(npcFolder:GetChildren()) do
+                            if boss:IsA("Model") then
+                                table.insert(allBosses, boss.Name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local zones = workspace:FindFirstChild("Zones")
+    if zones then
+        for _, zone in pairs(zones:GetChildren()) do
+            if zone:IsA("Folder") then
+                local interactables = zone:FindFirstChild("Interactables")
+                if interactables then
+                    local bosses = interactables:FindFirstChild("Bosses")
+                    if bosses then
+                        for _, boss in pairs(bosses:GetChildren()) do
+                            if boss:IsA("Model") then
+                                table.insert(allBosses, boss.Name)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local uniqueBosses = {}
+    for _, boss in pairs(allBosses) do
+        uniqueBosses[boss] = true
+    end
+    
+    local finalBosses = {}
+    for boss in pairs(uniqueBosses) do
+        table.insert(finalBosses, boss)
+    end
+    
+    table.sort(finalBosses)
+    return finalBosses
+end
+
+-- LISTA MANUAL DE RULETAS (Agrega las que quieras aquí)
+local allWheels = {
+    "Haunted Fortune",
+    "Underworld Fortune", 
+    "Carnival Fortune",
+    "Tralalero Fortune",
+    "Egyptian Fortune"
+    -- Agrega más ruletas aquí abajo:
+    -- "Nombre de Ruleta",
+    -- "Otra Ruleta",
+}
+
+-- Obtener todos los bosses
+local allBosses = GetAllBosses()
+
+-- Services
+local KnitServices = game:GetService("ReplicatedStorage").Packages.Knit.Services
+local ArmwrestleServiceRF = KnitServices:WaitForChild("ArmWrestleService"):WaitForChild("RF")
+local SpinnerServiceRF = KnitServices:WaitForChild("SpinnerService"):WaitForChild("RF")
+
+-- Variables
+local autoCriticThreads = {}
+local autoClickThreads = {}
+local autoFightThreads = {}
+local cleanupConnections = {}
+
+-- Cleanup function
+local function cleanupRequests()
+    collectgarbage("count")
+end
+
+-- =============================================
+-- AUTO FIGHT TAB
+-- =============================================
+local FightSection = Tabs.AutoFight:AddSection("Auto Fight System")
+
+-- Boss Dropdown con TODOS los bosses
+local modelDropdown = Tabs.AutoFight:AddDropdown("ModelDropdown", {
+    Title = "Select Boss (" .. #allBosses .. " found)",
+    Values = allBosses,
+    Multi = false,
+    Searchable = true,
+    Default = allBosses[1] or "",
+})
+
+-- ===== AUTO CRITIC HIT =====
+local AutoCriticToggle = Tabs.AutoFight:AddToggle("AutoCritic", {
+    Title = "Auto Critic Hit",
+    Description = "Automatically use critical hits",
+    Default = false
+})
+
+-- ===== AUTO CLICK =====
+local AutoClickToggle = Tabs.AutoFight:AddToggle("AutoClick", {
+    Title = "Auto Click",
+    Description = "Automatically click during fights",
+    Default = false
+})
+
+-- Configuración de Auto Click
+local ClickSpeedSlider = Tabs.AutoFight:AddSlider("ClickSpeed", {
+    Title = "Click Speed (ms)",
+    Description = "Delay between clicks in milliseconds",
+    Default = 50,
+    Min = 10,
+    Max = 200,
+    Rounding = 0,
+    Callback = function(value) end
+})
+
+-- Auto Fight Toggle
+local AutoFightToggle = Tabs.AutoFight:AddToggle("AutoFight", {
+    Title = "Auto Fight",
+    Description = "Automatically starts fights with the selected boss. NO TELEPORT",
+    Default = false
+})
+
+-- Always Win Button
+local AlwaysWin = Tabs.AutoFight:AddButton({
+    Title = "Always Win",
+    Description = "This makes it impossible to lose, rejoining resets this.",
+    Callback = function()
+        local armWrestle = require(game:GetService("ReplicatedStorage").Controllers.Fighting.ArmWrestleController)
+        
+        local originalIncrementPower = armWrestle.IncrementPower
+        armWrestle.IncrementPower = function(self, amount)
+            originalIncrementPower(self, math.abs(amount or 1) * 1000)
+        end
+        
+        spawn(function()
+            while armWrestle.Fighting do
+                if armWrestle.Health and armWrestle.MaxHealth then
+                    armWrestle.Health = armWrestle.MaxHealth
+                end
+                wait(0.1)
+            end
+        end)
+    end
+})
+
+-- Refresh Bosses Button
+local RefreshBosses = Tabs.AutoFight:AddButton({
+    Title = "Refresh Boss List",
+    Description = "Reload boss list",
+    Callback = function()
+        local newBosses = GetAllBosses()
+        modelDropdown:SetValues(newBosses)
+        modelDropdown:SetValue(newBosses[1] or "")
+    end
+})
+
+-- ===== AUTO CRITIC HANDLER (SISTEMA ORIGINAL) =====
+AutoCriticToggle:OnChanged(function(state)
+    if state then
+        -- Crear threads para Auto Critic (igual que el sistema original)
+        for _, thread in pairs(autoCriticThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoCriticThreads = {}
+        
+        if cleanupConnections.autoCritic then
+            cleanupConnections.autoCritic:Disconnect()
+        end
+        
+        -- Crear 100 threads para Auto Critic
+        for i = 1, 100 do
+            local threadData = { active = true }
+            table.insert(autoCriticThreads, threadData)
+            
+            task.spawn(function()
+                while threadData.active and AutoCriticToggle.Value do
+                    pcall(function()
+                        ArmwrestleServiceRF.RequestCritHit:InvokeServer()
+                    end)
+                    task.wait(1) -- 1 segundo entre critical hits
+                end
+            end)
+            task.wait(0.001)
+        end
+        
+        cleanupConnections.autoCritic = task.spawn(function()
+            while AutoCriticToggle.Value do
+                task.wait(5)
+                if AutoCriticToggle.Value then
+                    cleanupRequests()
+                end
+            end
+        end)
+        
+        Library:Notify("Auto Critic Hit ACTIVATED", 3)
+    else
+        -- Detener threads
+        for _, thread in pairs(autoCriticThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoCriticThreads = {}
+        
+        if cleanupConnections.autoCritic then
+            task.cancel(cleanupConnections.autoCritic)
+            cleanupConnections.autoCritic = nil
+        end
+        cleanupRequests()
+        
+        Library:Notify("Auto Critic Hit DEACTIVATED", 3)
+    end
+end)
+
+-- ===== AUTO CLICK HANDLER (SISTEMA ORIGINAL) =====
+AutoClickToggle:OnChanged(function(state)
+    if state then
+        -- Obtener delay del slider
+        local clickDelay = ClickSpeedSlider.Value / 1000
+        
+        -- Crear threads para Auto Click (igual que el sistema original)
+        for _, thread in pairs(autoClickThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoClickThreads = {}
+        
+        if cleanupConnections.autoClick then
+            cleanupConnections.autoClick:Disconnect()
+        end
+        
+        -- Crear 300 threads para Auto Click
+        for i = 1, 300 do
+            local threadData = { active = true }
+            table.insert(autoClickThreads, threadData)
+            
+            task.spawn(function()
+                while threadData.active and AutoClickToggle.Value do
+                    pcall(function()
+                        ArmwrestleServiceRF.RequestClick:InvokeServer()
+                    end)
+                    task.wait(clickDelay)
+                end
+            end)
+            task.wait(0.001)
+        end
+        
+        cleanupConnections.autoClick = task.spawn(function()
+            while AutoClickToggle.Value do
+                task.wait(5)
+                if AutoClickToggle.Value then
+                    cleanupRequests()
+                end
+            end
+        end)
+        
+        Library:Notify("Auto Click ACTIVATED (" .. ClickSpeedSlider.Value .. "ms)", 3)
+    else
+        -- Detener threads
+        for _, thread in pairs(autoClickThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoClickThreads = {}
+        
+        if cleanupConnections.autoClick then
+            task.cancel(cleanupConnections.autoClick)
+            cleanupConnections.autoClick = nil
+        end
+        cleanupRequests()
+        
+        Library:Notify("Auto Click DEACTIVATED", 3)
+    end
+end)
+
+-- ===== ACTUALIZAR VELOCIDAD EN TIEMPO REAL =====
+ClickSpeedSlider:OnChanged(function(value)
+    if AutoClickToggle.Value then
+        -- Reiniciar Auto Click con nueva velocidad
+        AutoClickToggle:SetValue(false)
+        task.wait(0.1)
+        AutoClickToggle:SetValue(true)
+        Library:Notify("Click speed updated to " .. value .. "ms", 2)
+    end
+end)
+
+-- ===== BOTONES DE CONTROL =====
+local ControlSection = Tabs.AutoFight:AddSection("Quick Controls")
+
+-- Botón para activar todo
+ControlSection:AddButton({
+    Title = "Activate All Combat",
+    Description = "Activate both Auto Critic and Auto Click",
+    Callback = function()
+        AutoCriticToggle:SetValue(true)
+        AutoClickToggle:SetValue(true)
+        Library:Notify("Both combat features ACTIVATED", 3)
+    end
+})
+
+-- Botón para desactivar todo
+ControlSection:AddButton({
+    Title = "Deactivate All Combat",
+    Description = "Deactivate both Auto Critic and Auto Click",
+    Callback = function()
+        AutoCriticToggle:SetValue(false)
+        AutoClickToggle:SetValue(false)
+        Library:Notify("Both combat features DEACTIVATED", 3)
+    end
+})
+
+-- ===== AUTO FIGHT HANDLER =====
+AutoFightToggle:OnChanged(function()
+    if AutoFightToggle.Value then
+        for _, flag in pairs(autoFightThreads) do
+            flag.active = false
+        end
+        autoFightThreads = {}
+        
+        if cleanupConnections.autoFight then
+            cleanupConnections.autoFight:Disconnect()
+        end
+        
+        for i = 1, 500 do
+            local threadFlag = { active = true }
+            table.insert(autoFightThreads, threadFlag)
+            
+            task.spawn(function()
+                while threadFlag.active and AutoFightToggle.Value do
+                    local selectedName = modelDropdown.Value
+                    if selectedName then
+                        local args = {[1] = selectedName}
+                        pcall(function()
+                            ArmwrestleServiceRF.RequestStartFight:InvokeServer(unpack(args))
+                        end)
+                    end
+                    task.wait(0.01)
+                end
+            end)
+            task.wait(0.001)
+        end
+        
+        cleanupConnections.autoFight = task.spawn(function()
+            while AutoFightToggle.Value do
+                task.wait(5)
+                if AutoFightToggle.Value then
+                    cleanupRequests()
+                end
+            end
+        end)
+    else
+        for _, flag in pairs(autoFightThreads) do
+            flag.active = false
+        end
+        autoFightThreads = {}
+        
+        if cleanupConnections.autoFight then
+            task.cancel(cleanupConnections.autoFight)
+            cleanupConnections.autoFight = nil
+        end
+        cleanupRequests()
+    end
+end)
+
+-- =============================================
+-- AUTO WHEEL TAB
+-- =============================================
+
+local WheelSection = Tabs.Wheel:AddSection("Auto Wheel")
+
+-- Wheel Dropdown con lista manual
+local wheelDropdown = Tabs.Wheel:AddDropdown("WheelDropdown", {
+    Title = "Select Wheel",
+    Values = allWheels,
+    Multi = false,
+    Searchable = true,
+    Default = allWheels[1] or "",
+})
+
+-- Spin Amount Dropdown
+local SpinAmountDropdown = Tabs.Wheel:AddDropdown("SpinAmount", {
+    Title = "Spin Amount",
+    Values = {"1x", "3x", "10x"},
+    Multi = false,
+    Default = "1x"
+})
+
+-- Auto Spin Toggle
+local AutoSpinToggle = Tabs.Wheel:AddToggle("AutoSpin", {
+    Title = "Auto Spin",
+    Description = "Automatically spin the selected wheel",
+    Default = false
+})
+
+-- Auto Spin Handler
+AutoSpinToggle:OnChanged(function()
+    if AutoSpinToggle.Value then
+        spawn(function()
+            while AutoSpinToggle.Value do
+                local selectedWheel = wheelDropdown.Value
+                local spinAmount = SpinAmountDropdown.Value
+                
+                if selectedWheel and selectedWheel ~= "" then
+                    local args = {
+                        [1] = selectedWheel,
+                        [2] = spinAmount == "3x" and "x10" or spinAmount == "10x" and "x25" or nil
+                    }
+                    
+                    pcall(function()
+                        SpinnerServiceRF.Spin:InvokeServer(unpack(args))
+                    end)
+                end
+                
+                wait(1)
+            end
+        end)
+    end
+end)
+
+-- UI Management
+local SaveManager = {
+    SetLibrary = function(self, lib) end,
+    IgnoreThemeSettings = function(self) end,
+    SetIgnoreIndexes = function(self) end,
+    SetFolder = function(self, folder) end,
+    BuildConfigSection = function(self, tab) end,
+    LoadAutoloadConfig = function(self) end
+}
+
+local InterfaceManager = {
+    SetLibrary = function(self, lib) end,
+    SetFolder = function(self, folder) end,
+    BuildInterfaceSection = function(self, tab) end
+}
+
+SaveManager:SetLibrary(Library)
+InterfaceManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes{}
+InterfaceManager:SetFolder("FastFightSebas")
+SaveManager:SetFolder("FastFightSebas/specific-game")
+
+InterfaceManager:BuildInterfaceSection(Tabs.AutoFight)
+SaveManager:BuildConfigSection(Tabs.AutoFight)
+Window:SelectTab(1)
+SaveManager:LoadAutoloadConfig()
