@@ -1,4 +1,4 @@
--- Fast Fight Sebas + Auto Wheel (Fixed)
+-- Fast Fight Sebas + Auto Wheel (Fixed Critic & Click)
 loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
 local Library = loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
 
@@ -85,46 +85,22 @@ local allWheels = {
 -- Obtener todos los bosses
 local allBosses = GetAllBosses()
 
--- Services (Knit Services)
+-- Services
 local KnitServices = game:GetService("ReplicatedStorage").Packages.Knit.Services
 local ArmwrestleService = KnitServices:WaitForChild("ArmWrestleService")
 local SpinnerService = KnitServices:WaitForChild("SpinnerService")
 
--- Adaptador inteligente para RF o RE (Evita que se rompa si el juego actualiza)
-local function safeRemoteCall(serviceFolder, remoteName, ...)
-    local args = {...}
-    pcall(function()
-        -- Intenta primero buscar en la carpeta RE (RemoteEvent)
-        local reFolder = serviceFolder:FindFirstChild("RE")
-        if reFolder and reFolder:FindFirstChild(remoteName) then
-            reFolder[remoteName]:FireServer(unpack(args))
-            return
-        end
-        
-        -- Si no, intenta en la carpeta RF (RemoteFunction)
-        local rfFolder = serviceFolder:FindFirstChild("RF")
-        if rfFolder and rfFolder:FindFirstChild(remoteName) then
-            rfFolder[remoteName]:InvokeServer(unpack(args))
-            return
-        end
-        
-        -- Si están sueltos en el servicio
-        if serviceFolder:FindFirstChild(remoteName) then
-            local remote = serviceFolder[remoteName]
-            if remote:IsA("RemoteEvent") then
-                remote:FireServer(unpack(args))
-            elseif remote:IsA("RemoteFunction") then
-                remote:InvokeServer(unpack(args))
-            end
-        end
-    end)
-end
+-- Remotos directos según tu captura
+local RequestClick = ArmwrestleService:WaitForChild("RF"):WaitForChild("RequestClick")
+local RequestCritHit = ArmwrestleService:WaitForChild("RF"):WaitForChild("RequestCritHit")
+local RequestStartFight = ArmwrestleService:WaitForChild("RF"):WaitForChild("RequestStartFight")
+local SpawnCritSignal = ArmwrestleService:WaitForChild("RE"):WaitForChild("SpawnCritSignal")
+local SpinnerSpin = SpinnerService:WaitForChild("RF"):WaitForChild("Spin")
 
--- Variables
-local autoCriticThreads = {}
+-- Variables de hilos y conexiones
 local autoClickThreads = {}
 local autoFightThreads = {}
-local cleanupConnections = {}
+local criticConnection = nil
 
 -- Cleanup function
 local function cleanupRequests()
@@ -145,10 +121,10 @@ local modelDropdown = Tabs.AutoFight:AddDropdown("ModelDropdown", {
     Default = allBosses[1] or "",
 })
 
--- ===== AUTO CRITIC HIT =====
+-- ===== AUTO CRITIC HIT (NUEVO SISTEMA INTELIGENTE) =====
 local AutoCriticToggle = Tabs.AutoFight:AddToggle("AutoCritic", {
     Title = "Auto Critic Hit",
-    Description = "Automatically use critical hits",
+    Description = "Automatically uses critical hits when game allows it",
     Default = false
 })
 
@@ -212,54 +188,41 @@ local RefreshBosses = Tabs.AutoFight:AddButton({
     end
 })
 
--- ===== AUTO CRITIC HANDLER (CORREGIDO) =====
+-- ===== ESCUCHADOR DE CRÍTICOS (CORREGIDO CON LA SEÑAL RE) =====
 AutoCriticToggle:OnChanged(function(state)
     if state then
-        for _, thread in pairs(autoCriticThreads) do
-            if typeof(thread) == "table" then thread.active = false end
-        end
-        autoCriticThreads = {}
+        if criticConnection then criticConnection:Disconnect() end
         
-        if cleanupConnections.autoCritic then task.cancel(cleanupConnections.autoCritic) end
+        -- Escucha cuando el juego spawnea un crítico y lo activa al instante
+        criticConnection = SpawnCritSignal.OnClientEvent:Connect(function()
+            if AutoCriticToggle.Value then
+                pcall(function()
+                    RequestCritHit:InvokeServer()
+                end)
+            end
+        end)
         
-        -- Optimizado a menos hilos pero más rápidos para evitar crasheos por spam excesivo
-        for i = 1, 10 do
-            local threadData = { active = true }
-            table.insert(autoCriticThreads, threadData)
-            
-            task.spawn(function()
-                while threadData.active and AutoCriticToggle.Value do
-                    safeRemoteCall(ArmwrestleService, "RequestCritHit")
-                    task.wait(0.1) -- Ajustado para ser ultra rápido sin romper el juego
-                end
-            end)
-            task.wait(0.005)
-        end
-        
-        cleanupConnections.autoCritic = task.spawn(function()
+        -- Por si acaso, un bucle secundario de respaldo rápido
+        task.spawn(function()
             while AutoCriticToggle.Value do
-                task.wait(5)
-                if AutoCriticToggle.Value then cleanupRequests() end
+                pcall(function()
+                    RequestCritHit:InvokeServer()
+                end)
+                task.wait(0.3)
             end
         end)
         
         Library:Notify("Auto Critic Hit ACTIVATED", 3)
     else
-        for _, thread in pairs(autoCriticThreads) do
-            if typeof(thread) == "table" then thread.active = false end
+        if criticConnection then
+            criticConnection:Disconnect()
+            criticConnection = nil
         end
-        autoCriticThreads = {}
-        
-        if cleanupConnections.autoCritic then
-            task.cancel(cleanupConnections.autoCritic)
-            cleanupConnections.autoCritic = nil
-        end
-        cleanupRequests()
         Library:Notify("Auto Critic Hit DEACTIVATED", 3)
     end
 end)
 
--- ===== AUTO CLICK HANDLER (CORREGIDO) =====
+-- ===== AUTO CLICK HANDLER (SISTEMA SEGURO Y ULTRA RÁPIDO) =====
 AutoClickToggle:OnChanged(function(state)
     if state then
         local clickDelay = ClickSpeedSlider.Value / 1000
@@ -269,28 +232,21 @@ AutoClickToggle:OnChanged(function(state)
         end
         autoClickThreads = {}
         
-        if cleanupConnections.autoClick then task.cancel(cleanupConnections.autoClick) end
-        
-        -- Hilos optimizados con el nuevo safeRemoteCall
-        for i = 1, 20 do
+        -- 5 Hilos rápidos dedicados para móvil sin congelar el juego
+        for i = 1, 5 do
             local threadData = { active = true }
             table.insert(autoClickThreads, threadData)
             
             task.spawn(function()
                 while threadData.active and AutoClickToggle.Value do
-                    safeRemoteCall(ArmwrestleService, "RequestClick")
+                    pcall(function()
+                        RequestClick:InvokeServer()
+                    end)
                     task.wait(clickDelay)
                 end
             end)
             task.wait(0.005)
         end
-        
-        cleanupConnections.autoClick = task.spawn(function()
-            while AutoClickToggle.Value do
-                task.wait(5)
-                if AutoClickToggle.Value then cleanupRequests() end
-            end
-        end)
         
         Library:Notify("Auto Click ACTIVATED (" .. ClickSpeedSlider.Value .. "ms)", 3)
     else
@@ -298,11 +254,6 @@ AutoClickToggle:OnChanged(function(state)
             if typeof(thread) == "table" then thread.active = false end
         end
         autoClickThreads = {}
-        
-        if cleanupConnections.autoClick then
-            task.cancel(cleanupConnections.autoClick)
-            cleanupConnections.autoClick = nil
-        end
         cleanupRequests()
         Library:Notify("Auto Click DEACTIVATED", 3)
     end
@@ -314,11 +265,10 @@ ClickSpeedSlider:OnChanged(function(value)
         AutoClickToggle:SetValue(false)
         task.wait(0.1)
         AutoClickToggle:SetValue(true)
-        Library:Notify("Click speed updated to " .. value .. "ms", 2)
     end
 end)
 
--- ===== BOTONES DE CONTROL =====
+-- ===== BOTONES DE CONTROL RAPIDO =====
 local ControlSection = Tabs.AutoFight:AddSection("Quick Controls")
 
 ControlSection:AddButton({
@@ -327,7 +277,6 @@ ControlSection:AddButton({
     Callback = function()
         AutoCriticToggle:SetValue(true)
         AutoClickToggle:SetValue(true)
-        Library:Notify("Both combat features ACTIVATED", 3)
     end
 })
 
@@ -337,49 +286,32 @@ ControlSection:AddButton({
     Callback = function()
         AutoCriticToggle:SetValue(false)
         AutoClickToggle:SetValue(false)
-        Library:Notify("Both combat features DEACTIVATED", 3)
     end
 })
 
--- ===== AUTO FIGHT HANDLER (CORREGIDO) =====
+-- ===== AUTO FIGHT HANDLER =====
 AutoFightToggle:OnChanged(function()
     if AutoFightToggle.Value then
         for _, flag in pairs(autoFightThreads) do flag.active = false end
         autoFightThreads = {}
         
-        if cleanupConnections.autoFight then task.cancel(cleanupConnections.autoFight) end
+        local threadFlag = { active = true }
+        table.insert(autoFightThreads, threadFlag)
         
-        for i = 1, 10 do
-            local threadFlag = { active = true }
-            table.insert(autoFightThreads, threadFlag)
-            
-            task.spawn(function()
-                while threadFlag.active and AutoFightToggle.Value do
-                    local selectedName = modelDropdown.Value
-                    if selectedName and selectedName ~= "" then
-                        safeRemoteCall(ArmwrestleService, "RequestStartFight", selectedName)
-                    end
-                    task.wait(0.5) -- Un delay prudente para no spamear ingresos de sala
+        task.spawn(function()
+            while threadFlag.active and AutoFightToggle.Value do
+                local selectedName = modelDropdown.Value
+                if selectedName and selectedName ~= "" then
+                    pcall(function()
+                        RequestStartFight:InvokeServer(selectedName)
+                    end)
                 end
-            end)
-            task.wait(0.01)
-        end
-        
-        cleanupConnections.autoFight = task.spawn(function()
-            while AutoFightToggle.Value do
-                task.wait(5)
-                if AutoFightToggle.Value then cleanupRequests() end
+                task.wait(0.5)
             end
         end)
     else
         for _, flag in pairs(autoFightThreads) do flag.active = false end
         autoFightThreads = {}
-        
-        if cleanupConnections.autoFight then
-            task.cancel(cleanupConnections.autoFight)
-            cleanupConnections.autoFight = nil
-        end
-        cleanupRequests()
     end
 end)
 
@@ -409,7 +341,6 @@ local AutoSpinToggle = Tabs.Wheel:AddToggle("AutoSpin", {
     Default = false
 })
 
--- Auto Spin Handler (Corregido con safeRemoteCall)
 AutoSpinToggle:OnChanged(function()
     if AutoSpinToggle.Value then
         task.spawn(function()
@@ -422,7 +353,9 @@ AutoSpinToggle:OnChanged(function()
                     if spinAmount == "3x" then mode = "x10" end
                     if spinAmount == "10x" then mode = "x25" end
                     
-                    safeRemoteCall(SpinnerService, "Spin", selectedWheel, mode)
+                    pcall(function()
+                        SpinnerSpin:InvokeServer(selectedWheel, mode)
+                    end)
                 end
                 task.wait(1)
             end
