@@ -1,214 +1,192 @@
--- Fast Fight Sebas - Versión Móvil Ultra Rápida (Click Físico + Auto Fight)
-loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
-local Library = loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+-- 🚨 OVERKILL EGG OPENER CON CONTADOR EN TIEMPO REAL 🚨
 
-local Window = Library:Window{
-    Title = "Fast Fight Sebas v2",
-    SubTitle = "Celular Mod",
-    TabWidth = 160,
-    Size = UDim2.fromOffset(580, 400),
-    Resize = false, 
-    Theme = "Darker",
-    MinimizeKey = Enum.KeyCode.LeftShift
+local eggName = "SakuraBlossom"
+local EggRemote = game:GetService("ReplicatedStorage").Packages.Knit.Services.EggService.RF.purchaseEgg
+
+-- CONTADOR GLOBAL
+local eggsOpened = 0
+local startTime = tick()
+
+-- CREAR UI CENTRADA
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 320, 0, 200)
+frame.Position = UDim2.new(0.5, -160, 0.5, -100) -- CENTRADO
+frame.AnchorPoint = Vector2.new(0.5, 0.5)
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+frame.BackgroundTransparency = 0.15
+frame.BorderSizePixel = 2
+frame.BorderColor3 = Color3.new(1, 0, 0)
+frame.Parent = screenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.Parent = frame
+
+-- TÍTULO CON FONDO
+local titleBg = Instance.new("Frame")
+titleBg.Size = UDim2.new(1, 0, 0, 35)
+titleBg.Position = UDim2.new(0, 0, 0, 0)
+titleBg.BackgroundColor3 = Color3.new(1, 0, 0)
+titleBg.BorderSizePixel = 0
+titleBg.Parent = frame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = titleBg
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 35)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.Text = "🥚 EGG OVERKILL STATS 🥚"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 20
+title.Parent = frame
+
+-- CREAR LABELS INICIALES
+local labels = {}
+local labelTexts = {
+    "Eggs Abiertos: 0",
+    "Tiempo: 0s", 
+    "Velocidad: 0/s",
+    "Proyección: 0/h",
+    "Hilos: 200 ACTIVOS"
 }
 
-local Tabs = {
-    Combat = Window:AddTab({ Title = "Combate Celular", Icon = "swords" })
-}
-
--- DETECTOR AUTOMÁTICO DE BOSSES
-local function GetAllBosses()
-    local allBosses = {}
-    local gameObjects = workspace:FindFirstChild("GameObjects")
-    if gameObjects then
-        local armWrestling = gameObjects:FindFirstChild("ArmWrestling")
-        if armWrestling then
-            for _, zoneFolder in pairs(armWrestling:GetChildren()) do
-                if zoneFolder:IsA("Folder") then
-                    local npcFolder = zoneFolder:FindFirstChild("NPC")
-                    if npcFolder then
-                        for _, boss in pairs(npcFolder:GetChildren()) do
-                            if boss:IsA("Model") then table.insert(allBosses, boss.Name) end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    local zones = workspace:FindFirstChild("Zones")
-    if zones then
-        for _, zone in pairs(zones:GetChildren()) do
-            if zone:IsA("Folder") then
-                local interactables = zone:FindFirstChild("Interactables")
-                if interactables then
-                    local bosses = interactables:FindFirstChild("Bosses")
-                    if bosses then
-                        for _, boss in pairs(bosses:GetChildren()) do
-                            if boss:IsA("Model") then table.insert(allBosses, boss.Name) end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    local uniqueBosses = {}
-    for _, boss in pairs(allBosses) do uniqueBosses[boss] = true end
-    local finalBosses = {}
-    for boss in pairs(uniqueBosses) do table.insert(finalBosses, boss) end
-    table.sort(finalBosses)
-    return finalBosses
+for i, text in ipairs(labelTexts) do
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0, 28)
+    label.Position = UDim2.new(0, 10, 0, 40 + (i-1)*32)
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.SourceSansSemibold
+    label.TextSize = 18
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+    labels[i] = label
 end
 
-local allBosses = GetAllBosses()
+-- BOTÓN PARA CERRAR (OPCIONAL)
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 25, 0, 25)
+closeButton.Position = UDim2.new(1, -30, 0, 5)
+closeButton.Text = "X"
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.BackgroundColor3 = Color3.new(1, 0, 0)
+closeButton.BorderSizePixel = 0
+closeButton.Font = Enum.Font.SourceSansBold
+closeButton.TextSize = 16
+closeButton.Parent = frame
 
--- Servicios requeridos para el modo físico
-local KnitServices = game:GetService("ReplicatedStorage").Packages.Knit.Services
-local ArmwrestleService = KnitServices:WaitForChild("ArmWrestleService")
-local RequestStartFight = ArmwrestleService:WaitForChild("RF"):WaitForChild("RequestStartFight")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 12)
+closeCorner.Parent = closeButton
 
--- Variables de Control
-local autoClickActive = false
-local autoFightActive = false
+closeButton.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
 
--- =============================================
--- SECCIÓN DE COMBATE CELULAR
--- =============================================
-local CombatSection = Tabs.Combat:AddSection("Controles Principales")
-
--- Dropdown para elegir el Jefe
-local modelDropdown = Tabs.Combat:AddDropdown("ModelDropdown", {
-    Title = "Seleccionar Jefe (" .. #allBosses .. " encontrados)",
-    Values = allBosses,
-    Multi = false,
-    Searchable = true,
-    Default = allBosses[1] or "",
-})
-
--- ===== AUTO CLICKER / CRITIC FÍSICO ULTRA RÁPIDO =====
-local AutoClickToggle = Tabs.Combat:AddToggle("AutoClickFisico", {
-    Title = "Mega Auto Clicker (Toque de Pantalla)",
-    Description = "Simula toques reales ultra rápidos en el centro de la pantalla. ¡Activa el click y el crítico a la vez!",
-    Default = false
-})
-
--- Ajuste de velocidad del clicker
-local ClickSpeedSlider = Tabs.Combat:AddSlider("ClickSpeed", {
-    Title = "Velocidad de Toque (ms)",
-    Description = "Menor tiempo = Más clics por segundo",
-    Default = 15,
-    Min = 5,
-    Max = 100,
-    Rounding = 0,
-    Callback = function(value) end
-})
-
--- ===== AUTO LUCHA / AUTO BUSCAR JEFE =====
-local AutoFightToggle = Tabs.Combat:AddToggle("AutoFight", {
-    Title = "Auto Lucha (Auto Buscar Jefe)",
-    Description = "Inicia peleas automáticamente con el jefe seleccionado sin parar",
-    Default = false
-})
-
--- Botón Always Win (Siempre ganar modificado)
-local AlwaysWin = Tabs.Combat:AddButton({
-    Title = "Modo: Siempre Ganar (OP)",
-    Description = "Aumenta tu poder base drásticamente durante el duelo",
-    Callback = function()
-        pcall(function()
-            local armWrestle = require(game:GetService("ReplicatedStorage").Controllers.Fighting.ArmWrestleController)
-            local originalIncrementPower = armWrestle.IncrementPower
-            armWrestle.IncrementPower = function(self, amount)
-                originalIncrementPower(self, math.abs(amount or 1) * 5000) -- Multiplicador x5000 OP
-            end
-            Library:Notify("Modo Siempre Ganar Inyectado con Éxito", 3)
-        end)
+-- FUNCIÓN PARA ACTUALIZAR LA UI
+local function updateUI()
+    local elapsed = tick() - startTime
+    local eggsPerSecond = eggsOpened / elapsed
+    
+    labels[1].Text = "Eggs Abiertos: " .. eggsOpened
+    labels[2].Text = "Tiempo: " .. string.format("%.1fs", elapsed)
+    labels[3].Text = "Velocidad: " .. string.format("%.1f/s", eggsPerSecond)
+    labels[4].Text = "Proyección: " .. string.format("%.0f/h", eggsPerSecond * 3600)
+    
+    -- CAMBIAR COLOR SEGÚN VELOCIDAD
+    if eggsPerSecond > 100 then
+        labels[3].TextColor3 = Color3.new(0, 1, 0) -- Verde
+        titleBg.BackgroundColor3 = Color3.new(0, 1, 0) -- Verde
+    elseif eggsPerSecond > 50 then
+        labels[3].TextColor3 = Color3.new(1, 1, 0) -- Amarillo
+        titleBg.BackgroundColor3 = Color3.new(1, 1, 0) -- Amarillo
+    else
+        labels[3].TextColor3 = Color3.new(1, 0, 0) -- Rojo
+        titleBg.BackgroundColor3 = Color3.new(1, 0, 0) -- Rojo
     end
-})
+end
 
--- Botón para recargar la lista de jefes si cambias de zona
-Tabs.Combat:AddButton({
-    Title = "Actualizar Lista de Jefes",
-    Callback = function()
-        local newBosses = GetAllBosses()
-        modelDropdown:SetValues(newBosses)
-        modelDropdown:SetValue(newBosses[1] or "")
-        Library:Notify("Lista de jefes actualizada", 2)
-    end
-})
-
--- ===== MANEJADOR DEL MEGAMODEL CLICK FÍSICO (MULTIHILO) =====
-AutoClickToggle:OnChanged(function(state)
-    autoClickActive = state
-    if state then
-        local delayTime = ClickSpeedSlider.Value / 1000
-        
-        -- Abrimos 4 hilos en paralelo sincronizados para generar una ráfaga masiva de toques
-        for i = 1, 4 do
-            task.spawn(function()
-                while autoClickActive do
-                    pcall(function()
-                        local camera = workspace.CurrentCamera
-                        if camera then
-                            -- Calcula el centro exacto de tu pantalla de celular
-                            local x = camera.ViewportSize.X * 0.5
-                            local y = camera.ViewportSize.Y * 0.65 -- Posición perfecta para registrar clicks normales y críticos a la vez
-                            
-                            -- Enviar evento de pulsar pantalla
-                            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                            task.wait(0.001)
-                            -- Enviar evento de soltar pantalla
-                            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-                        end
-                    end)
-                    task.wait(delayTime)
-                end
+-- FUNCIÓN OVERKILL CON CONTADOR
+local function OVERKILL_WITH_COUNTER()
+    while true do
+        for _ = 1, 50 do
+            pcall(function()
+                EggRemote:InvokeServer(eggName, nil, nil, false, nil, true)
+                eggsOpened = eggsOpened + 1
             end)
-            task.wait(0.002) -- Micro-retraso para intercalar las ráfagas
         end
-        Library:Notify("¡Super Auto Clicker Activo!", 3)
-    else
-        Library:Notify("Auto Clicker Desactivado", 3)
+        task.wait(0.0001)
     end
-end)
+end
 
--- Reiniciar automáticamente si el usuario cambia el Slider de velocidad en vivo
-ClickSpeedSlider:OnChanged(function()
-    if autoClickActive then
-        AutoClickToggle:SetValue(false)
+-- MOSTRAR INICIO
+print("\n🎯 INICIANDO EGG OVERKILL CON CONTADOR EN UI...")
+
+-- CREAR HILOS
+for i = 1, 200 do
+    task.spawn(OVERKILL_WITH_COUNTER)
+end
+
+-- ACTUALIZAR UI CADA 0.1 SEGUNDOS
+task.spawn(function()
+    while true do
         task.wait(0.1)
-        AutoClickToggle:SetValue(true)
+        updateUI()
     end
 end)
 
--- ===== MANEJADOR DE AUTO LUCHA =====
-AutoFightToggle:OnChanged(function(state)
-    autoFightActive = state
-    if state then
-        task.spawn(function()
-            while autoFightActive do
-                local selectedName = modelDropdown.Value
-                if selectedName and selectedName ~= "" then
-                    pcall(function()
-                        RequestStartFight:InvokeServer(selectedName)
-                    end)
-                end
-                task.wait(0.4) -- Re-intenta entrar a la pelea de forma óptima
+-- CONTADOR EN CONSOLA CADA SEGUNDO
+task.spawn(function()
+    while true do
+        task.wait(1)
+        local elapsed = tick() - startTime
+        local eggsPerSecond = eggsOpened / elapsed
+        
+        print(string.format("📊 [LIVE] %d eggs | %.1f/s | %.1f/m | %d/h", 
+              eggsOpened, eggsPerSecond, eggsPerSecond * 60, eggsPerSecond * 3600))
+    end
+end)
+
+-- HACER LA UI ARRASTRABLE (MEJORADO)
+local UserInputService = game:GetService("UserInputService")
+local dragging = false
+local dragStart, startPos
+
+titleBg.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
             end
         end)
-        Library:Notify("Auto Lucha Iniciada", 3)
-    else
-        Library:Notify("Auto Lucha Detenida", 3)
     end
 end)
 
--- UI Management Obligatorio de Fluent
-local SaveManager = { SetLibrary = function() end, IgnoreThemeSettings = function() end, SetIgnoreIndexes = function() end, SetFolder = function() end, BuildConfigSection = function() end, LoadAutoloadConfig = function() end }
-local InterfaceManager = { SetLibrary = function() end, SetFolder = function() end, BuildInterfaceSection = function() end }
-SaveManager:SetLibrary(Library)
-InterfaceManager:SetLibrary(Library)
-InterfaceManager:SetFolder("FastFightSebas")
-SaveManager:SetFolder("FastFightSebas/specific-game")
-Window:SelectTab(1)
+UserInputService.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- INICIALIZAR UI
+updateUI()
+print("✅ UI CENTRADA INICIALIZADA - Puedes arrastrar desde la barra roja")
+print("📍 Ubicación: Centro de la pantalla")
+print("🖱️  Para mover: Haz clic en la barra roja y arrastra")
